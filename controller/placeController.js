@@ -1,15 +1,17 @@
 import Place from '../model/Place.js';
+import UserVisit from '../model/UserVisit.js';
 
 // @desc    Get all places (with optional filters)
 // @route   GET /api/places
 export const getPlaces = async (req, res) => {
   try {
-    const { category, country, state, search, page = 1, limit = 50 } = req.query;
+    const { category, country, state, city, search, page = 1, limit = 50 } = req.query;
 
     const filter = { isActive: true };
     if (category) filter.category = category;
     if (country) filter.country = country;
     if (state) filter.state = state;
+    if (city) filter.city = city;
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -25,8 +27,38 @@ export const getPlaces = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    // Calculate nested progress for parent places if user is logged in
+    let placesWithProgress = places;
+    if (req.user && req.user._id) {
+      const userVisits = await UserVisit.find({ user: req.user._id }).select('place');
+      const visitedSet = new Set(userVisits.map(v => v.place.toString()));
+
+      placesWithProgress = await Promise.all(places.map(async (place) => {
+        const pObj = place.toObject();
+        if (['country', 'state', 'city'].includes(pObj.category)) {
+          let childFilter = { isActive: true, category: { $nin: ['country', 'state', 'city'] } };
+          if (pObj.category === 'city') {
+            childFilter.city = pObj.name;
+          } else if (pObj.category === 'state') {
+            childFilter.state = pObj.name;
+          } else if (pObj.category === 'country') {
+            childFilter.country = pObj.name;
+          }
+
+          const childPlaces = await Place.find(childFilter).select('_id');
+          const totalSubPlaces = childPlaces.length;
+          const visitedSubPlaces = childPlaces.filter(cp => visitedSet.has(cp._id.toString())).length;
+
+          pObj.totalSubPlaces = totalSubPlaces;
+          pObj.visitedSubPlaces = visitedSubPlaces;
+          pObj.explorePercentage = totalSubPlaces > 0 ? Math.round((visitedSubPlaces / totalSubPlaces) * 100) : 0;
+        }
+        return pObj;
+      }));
+    }
+
     res.json({
-      places,
+      places: placesWithProgress,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / parseInt(limit)),
