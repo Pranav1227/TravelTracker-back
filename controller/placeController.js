@@ -5,7 +5,7 @@ import UserVisit from '../model/UserVisit.js';
 // @route   GET /api/places
 export const getPlaces = async (req, res) => {
   try {
-    const { category, country, state, city, search, page = 1, limit = 50 } = req.query;
+    const { category, country, state, city, search, page = 1, limit = 50, sort = 'name_asc', visitedStatus } = req.query;
 
     const filter = { isActive: true };
     if (category) filter.category = category;
@@ -20,10 +20,28 @@ export const getPlaces = async (req, res) => {
       ];
     }
 
+    if (visitedStatus && (visitedStatus === 'visited' || visitedStatus === 'unvisited')) {
+      if (req.user && req.user._id) {
+        const userVisits = await UserVisit.find({ user: req.user._id }).select('place');
+        const visitedPlaceIds = userVisits.map(v => v.place);
+        if (visitedStatus === 'visited') {
+          filter._id = { $in: visitedPlaceIds };
+        } else {
+          filter._id = { $nin: visitedPlaceIds };
+        }
+      } else if (visitedStatus === 'visited') {
+        filter._id = { $in: [] };
+      }
+    }
+
+    let sortOptions = { name: 1 };
+    if (sort === 'name_desc') sortOptions = { name: -1 };
+    else if (sort === 'recent') sortOptions = { createdAt: -1 };
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const total = await Place.countDocuments(filter);
     const places = await Place.find(filter)
-      .sort({ name: 1 })
+      .sort(sortOptions)
       .skip(skip)
       .limit(parseInt(limit));
 

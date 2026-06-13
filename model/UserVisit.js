@@ -17,10 +17,24 @@ const userVisitSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    status: {
+      type: String,
+      enum: ['visited', 'bucketlist'],
+      default: 'visited',
+    },
     notes: {
       type: String,
       default: '',
       maxlength: 500,
+    },
+    memoryPhotoUrl: {
+      type: String,
+      default: '',
+    },
+    memoryNote: {
+      type: String,
+      default: '',
+      maxlength: 1000,
     },
   },
   { timestamps: true }

@@ -1,6 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import path from "path";
 import connectDB from "./config/db.js";
 
 // Route imports
@@ -10,6 +11,7 @@ import visitRoutes from "./Routes/visitRoutes.js";
 import hiddenGemRoutes from "./Routes/hiddenGemRoutes.js";
 import adminRoutes from "./Routes/adminRoutes.js";
 import badgeRoutes from "./Routes/badgeRoutes.js";
+import bucketListRoutes from "./Routes/bucketListRoutes.js";
 
 dotenv.config();
 
@@ -22,6 +24,9 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "10mb" }));
 
+const __dirname = path.resolve();
+app.use("/uploads", express.static(path.join(__dirname, "/uploads")));
+
 // Connect to database
 connectDB();
 
@@ -32,6 +37,7 @@ app.use("/api/visits", visitRoutes);
 app.use("/api/hidden-gems", hiddenGemRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/badges", badgeRoutes);
+app.use("/api/bucket-lists", bucketListRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {

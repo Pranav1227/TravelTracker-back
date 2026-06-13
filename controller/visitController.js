@@ -89,11 +89,12 @@ export const getExplorationStats = async (req, res) => {
   }
 };
 
-// @desc    Toggle a visit (check/uncheck place)
+// @desc    Toggle a visit (check/uncheck place) or bucketlist
 // @route   POST /api/visits/toggle/:placeId
 export const toggleVisit = async (req, res) => {
   try {
     const { placeId } = req.params;
+    const { status = 'visited' } = req.body; // 'visited' or 'bucketlist'
 
     // Check if place exists
     const place = await Place.findById(placeId);
@@ -101,15 +102,16 @@ export const toggleVisit = async (req, res) => {
       return res.status(404).json({ message: 'Place not found' });
     }
 
-    // Check if already visited
+    // Check if already visited/bucketlisted
     const existingVisit = await UserVisit.findOne({
       user: req.user._id,
       place: placeId,
     });
 
     if (existingVisit) {
-      // Uncheck – remove visit
-      await UserVisit.findByIdAndDelete(existingVisit._id);
+      if (existingVisit.status === status) {
+        // Untoggle (remove completely)
+        await UserVisit.findByIdAndDelete(existingVisit._id);
 
       // Fetch all remaining visits to perform cascade cleanups
       const remainingVisits = await UserVisit.find({ user: req.user._id }).populate('place');
@@ -153,12 +155,19 @@ export const toggleVisit = async (req, res) => {
         }
       }
 
-      return res.json({ visited: false, message: 'Visit removed' });
+      return res.json({ removed: true, status, message: `${status === 'visited' ? 'Visit' : 'Bucket list item'} removed` });
+      } else {
+        // Change status from bucketlist to visited or vice versa
+        existingVisit.status = status;
+        await existingVisit.save();
+        return res.json({ updated: true, visit: existingVisit, message: `Moved to ${status}` });
+      }
     } else {
-      // Check – add visit
+      // Add visit/bucketlist
       const visit = await UserVisit.create({
         user: req.user._id,
         place: placeId,
+        status,
         notes: req.body.notes || '',
       });
 
@@ -196,22 +205,60 @@ export const toggleVisit = async (req, res) => {
         }
       }
 
-      return res.json({ visited: true, visit, message: 'Visit recorded' });
+      return res.json({ added: true, visit, message: `${status === 'visited' ? 'Visit recorded' : 'Added to bucket list'}` });
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Get visited place IDs for current user (lightweight)
+// @desc    Get visited and bucketlist place IDs for current user (lightweight)
 // @route   GET /api/visits/ids
 export const getVisitedIds = async (req, res) => {
   try {
     const visits = await UserVisit.find({ user: req.user._id }).select(
-      'place'
+      'place status'
     );
-    const ids = visits.map((v) => v.place.toString());
-    res.json(ids);
+    const visitedIds = visits.filter(v => v.status === 'visited').map(v => v.place.toString());
+    const bucketListIds = visits.filter(v => v.status === 'bucketlist').map(v => v.place.toString());
+    
+    res.json({ visitedIds, bucketListIds });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Add a memory (photo + note) to an existing visit
+// @route   POST /api/visits/:placeId/memory
+export const addMemory = async (req, res) => {
+  try {
+    const { placeId } = req.params;
+    const { memoryNote } = req.body;
+    
+    // Check if visit exists
+    let visit = await UserVisit.findOne({
+      user: req.user._id,
+      place: placeId,
+    });
+
+    if (!visit) {
+      return res.status(404).json({ message: 'Visit record not found. Please mark as visited first.' });
+    }
+
+    if (req.file) {
+      visit.memoryPhotoUrl = `/uploads/${req.file.filename}`;
+    }
+    
+    if (memoryNote !== undefined) {
+      visit.memoryNote = memoryNote;
+    }
+
+    await visit.save();
+    
+    // Re-populate to send back full visit
+    await visit.populate('place');
+
+    res.json(visit);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
